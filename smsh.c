@@ -30,6 +30,7 @@ int inarg(char c); 	/* are we in an ordinary argument */
 void procline(void);	/* process input lines */
 int runcommand(char **cline, int where);
 void setprompt(void);
+int change_directory(char **cline);
 
 int main(void)
 {
@@ -151,6 +152,14 @@ int runcommand(char **cline, int where)
 {
 	int pid, exitstat, ret;
 
+	/* if change directory command */
+	if (strcmp(cline[0], "cd") == 0)
+	{
+		ret = change_directory(cline);
+		setprompt();
+		return ret;
+	}
+
 	if ((pid = fork()) < 0) {
 		perror("smsh");
 		return -1;
@@ -200,4 +209,26 @@ void setprompt(void)
 	}
 
 	sprintf(prompt, "%s$", prompt);
+}
+
+int change_directory(char **cline)
+{
+	if (cline[1] == '\0')
+	{
+		uid_t user_id;
+		struct passwd *user_pw;
+
+		user_id  = getuid();			// 사용자 아이디를 구하고
+    	user_pw  = getpwuid(user_id);	// 아이디로 사용자 정보 구하기
+		return chdir(user_pw->pw_dir);
+	}
+	else if (cline[2] != '\0')
+	{
+		fprintf(stderr, "cd: too many arguments\n");
+		return -1;
+	}
+	else
+	{
+		return chdir(cline[1]);
+	}
 }
