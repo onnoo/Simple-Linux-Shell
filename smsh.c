@@ -16,6 +16,7 @@
 #define REDIRECT 5			/* cmd > file_name */
 #define REDIRECT_FORCE 6
 #define REDIRECT_APPEND 7
+#define REDIRECT_IN 8
 
 #define MAXARG 1024			/* max. no. command args */
 #define MAXBUF 1024			/* max. length input line */
@@ -123,6 +124,9 @@ int gettok(char **outptr)
 			type = REDIRECT;
 		}
 		break;
+	case '<':
+		type = REDIRECT_IN;
+		break;
 	default:
 		type = ARG;
 		while(inarg(*ptr))
@@ -177,6 +181,9 @@ void procline(void)
 		case REDIRECT_APPEND:
 			red.type = REDIRECT_APPEND;
 			break;
+		case REDIRECT_IN:
+			red.type = REDIRECT_IN;
+			break;
 		case EOL:
 		case SEMICOLON:
 		case AMPERSAND:
@@ -221,25 +228,41 @@ int runcommand(char **cline, int isBack, struct rdrct* redirect)
 
 	if (pid == 0) { /* child */
 		if (redirect != NULL){
-			int flags = O_CREAT|O_WRONLY;
-			switch (redirect->type) {
-			case REDIRECT_APPEND:
-				flags |= O_APPEND; break;
-			case REDIRECT:
-				flags |= O_EXCL; break;
-			default:
-				break;
-			}
-			fd = open(redirect->file_name, flags, FPERM);
-			if (fd < 0)
+			if (redirect->type == REDIRECT_IN)
 			{
-				fprintf(stderr, "%s: cannot overwrite existing file\n", redirect->file_name);
-				return -1;
+				fd = open(redirect->file_name, O_RDONLY);
+				if (fd < 0)
+				{
+					fprintf(stderr, "%s: No such file or directory\n", redirect->file_name);
+					return -1;
+				}
+				close(STDIN_FILENO);
+				dup(fd);
+				close(fd);
+				/* stdin is now redirected */
 			}
-			close(STDOUT_FILENO);
-			dup(fd);
-			close(fd);
-			/* stdout is now redirected */
+			else
+			{
+				int flags = O_CREAT|O_WRONLY|O_TRUNC;
+				switch (redirect->type) {
+					case REDIRECT_APPEND:
+						flags |= O_APPEND; break;
+					case REDIRECT:
+						flags |= O_EXCL; break;
+					default:
+						break;
+				}
+				fd = open(redirect->file_name, flags, FPERM);
+				if (fd < 0)
+				{
+					fprintf(stderr, "%s: cannot overwrite existing file\n", redirect->file_name);
+					return -1;
+				}
+				close(STDOUT_FILENO);
+				dup(fd);
+				close(fd);
+				/* stdout is now redirected */
+			}
 		}
 		execvp(*cline, cline);
 		perror(*cline);
