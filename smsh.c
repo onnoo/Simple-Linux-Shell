@@ -14,6 +14,8 @@
 #define AMPERSAND 3
 #define SEMICOLON 4
 #define REDIRECT 5			/* cmd > file_name */
+#define REDIRECT_FORCE 6
+#define REDIRECT_APPEND 7
 
 #define MAXARG 1024			/* max. no. command args */
 #define MAXBUF 1024			/* max. length input line */
@@ -106,7 +108,21 @@ int gettok(char **outptr)
 	case ';':
 		type = SEMICOLON; break;
 	case '>':
-		type = REDIRECT; break;
+		if (*ptr == '|')
+		{
+			ptr++;
+			type = REDIRECT_FORCE;
+		}
+		else if (*ptr == '>')
+		{
+			ptr++;
+			type = REDIRECT_APPEND;
+		}
+		else
+		{
+			type = REDIRECT;
+		}
+		break;
 	default:
 		type = ARG;
 		while(inarg(*ptr))
@@ -153,7 +169,13 @@ void procline(void)
 			}
 			break;
 		case REDIRECT:
-			red.type = 1;
+			red.type = REDIRECT;
+			break;
+		case REDIRECT_FORCE:
+			red.type = REDIRECT_FORCE;
+			break;
+		case REDIRECT_APPEND:
+			red.type = REDIRECT_APPEND;
 			break;
 		case EOL:
 		case SEMICOLON:
@@ -199,7 +221,21 @@ int runcommand(char **cline, int isBack, struct rdrct* redirect)
 
 	if (pid == 0) { /* child */
 		if (redirect != NULL){
-			fd = creat(redirect->file_name, FPERM);
+			int flags = O_CREAT|O_WRONLY;
+			switch (redirect->type) {
+			case REDIRECT_APPEND:
+				flags |= O_APPEND; break;
+			case REDIRECT:
+				flags |= O_EXCL; break;
+			default:
+				break;
+			}
+			fd = open(redirect->file_name, flags, FPERM);
+			if (fd < 0)
+			{
+				fprintf(stderr, "%s: cannot overwrite existing file\n", redirect->file_name);
+				return -1;
+			}
 			close(STDOUT_FILENO);
 			dup(fd);
 			close(fd);
