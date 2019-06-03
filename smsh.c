@@ -6,29 +6,41 @@
 #include <string.h>
 #include <pwd.h>
 #include <sys/types.h>
+#include <fcntl.h>
+#include <sys/types.h>
 
-#define EOL 1			/* end of line */
-#define ARG 2			/* normal argument */
+#define EOL 1				/* end of line */
+#define ARG 2				/* normal argument */
 #define AMPERSAND 3
 #define SEMICOLON 4
+#define REDIRECT 5			/* cmd > file_name */
 
-#define MAXARG 1024		/* max. no. command args */
-#define MAXBUF 1024		/* max. length input line */
+#define MAXARG 1024			/* max. no. command args */
+#define MAXBUF 1024			/* max. length input line */
 
 #define FOREGROUND 0
 #define BACKGROUND 1
+
+#define FPERM 0644
+
+struct rdrct
+{
+	int type;
+	char *file_name;
+};
+
 
 char prompt[256];		/* prompt */
 
 /* program buffers and work pointers */
 char inpbuf[MAXBUF], tokbuf[2 * MAXBUF], *ptr = inpbuf, *tok = tokbuf;
-char special[] = {' ', '\t', '&', ';', '\n', '\0'};
+char special[] = {' ', '\t', '&', ';', '\n', '>', '\0'};
 
 int userin(char *p);
 int gettok(char **outptr);
 int inarg(char c); 	/* are we in an ordinary argument */
 void procline(void);	/* process input lines */
-int runcommand(char **cline, int where);
+int runcommand(char **cline, int isBack, struct rdrct* redirect);
 void setprompt(void);
 int change_directory(char **cline);
 
@@ -73,6 +85,7 @@ int userin(char *p)
 	}
 }
 
+/* specify tokbuf */
 int gettok(char **outptr)
 {
 	int type;
@@ -92,6 +105,8 @@ int gettok(char **outptr)
 		type = AMPERSAND; break;
 	case ';':
 		type = SEMICOLON; break;
+	case '>':
+		type = REDIRECT; break;
 	default:
 		type = ARG;
 		while(inarg(*ptr))
@@ -117,26 +132,43 @@ void procline(void)
 	char *arg[MAXARG + 1];		/* pointer array for runcommand */
 	int toktype;				/* type of token in commnad */
 	int narg;					/* number of arguments so far */
-	int type;					/* FOREGROUND or BACKGROUND */
+	int amp;					/* FOREGROUND or BACKGROUND */
+	struct rdrct red;			/* REDIRECT KEYWORD */
+
+	red.type = 0;
 
 	for (narg = 0;;) {	/* loop FOREVER */
 
 		/* take action according to token type */
 		switch (toktype = gettok(&arg[narg])) {
 		case ARG:
-			if (narg < MAXARG)
+			if (red.type != 0)
+			{
+				red.file_name = arg[narg];
+			}
+			else
+			{
+				if (narg < MAXARG)
 				narg++;
+			}
 			break;
-
+		case REDIRECT:
+			red.type = 1;
+			break;
 		case EOL:
 		case SEMICOLON:
 		case AMPERSAND:
 
-			type = (toktype == AMPERSAND) ? BACKGROUND : FOREGROUND;
+			amp = (toktype == AMPERSAND) ? BACKGROUND : FOREGROUND;
 
 			if (narg != 0) {
 				arg[narg] = NULL;
-				runcommand(arg, type);
+				if (red.type == 0) {
+					runcommand(arg, amp, NULL);
+				} else {
+					runcommand(arg, amp, &red);
+				}
+				
 			}	
 
 			if (toktype == EOL)
@@ -148,9 +180,9 @@ void procline(void)
 	}
 }
 
-int runcommand(char **cline, int where)
+int runcommand(char **cline, int isBack, struct rdrct* redirect)
 {
-	int pid, exitstat, ret;
+	int pid, exitstat, ret, fd;
 
 	/* if change directory command */
 	if (strcmp(cline[0], "cd") == 0)
@@ -166,6 +198,13 @@ int runcommand(char **cline, int where)
 	}
 
 	if (pid == 0) { /* child */
+		if (redirect != NULL){
+			fd = creat(redirect->file_name, FPERM);
+			close(STDOUT_FILENO);
+			dup(fd);
+			close(fd);
+			/* stdout is now redirected */
+		}
 		execvp(*cline, cline);
 		perror(*cline);
 		exit(127);
@@ -174,7 +213,7 @@ int runcommand(char **cline, int where)
 	/* code for parent */
 	/* if background process print pid and exit */
 
-	if (where == BACKGROUND) {
+	if (isBack == BACKGROUND) {
 		printf("[Process id %d]\n", pid);
 		return 0;
 	}
