@@ -3,6 +3,9 @@
 #include <stdio.h>
 #include <unistd.h>
 #include <stdlib.h>
+#include <string.h>
+#include <pwd.h>
+#include <sys/types.h>
 
 #define EOL 1			/* end of line */
 #define ARG 2			/* normal argument */
@@ -15,7 +18,7 @@
 #define FOREGROUND 0
 #define BACKGROUND 1
 
-char *prompt = "Command>";		/* promprt */
+char prompt[256];		/* prompt */
 
 /* program buffers and work pointers */
 char inpbuf[MAXBUF], tokbuf[2 * MAXBUF], *ptr = inpbuf, *tok = tokbuf;
@@ -26,9 +29,11 @@ int gettok(char **outptr);
 int inarg(char c); 	/* are we in an ordinary argument */
 void procline(void);	/* process input lines */
 int runcommand(char **cline, int where);
+void setprompt(void);
 
 int main(void)
 {
+	setprompt();
 	while (userin(prompt) != EOF)
 	{
 		procline();
@@ -171,4 +176,28 @@ int runcommand(char **cline, int where)
 		;
 	
 	return (ret == -1 ? -1 : exitstat);
+}
+
+void setprompt(void)
+{
+	char cwd[256];
+	uid_t user_id;
+	struct passwd *user_pw;
+
+	user_id  = getuid();			// 사용자 아이디를 구하고
+    user_pw  = getpwuid(user_id);	// 아이디로 사용자 정보 구하기
+
+	/* current woriking directory */
+	getcwd(cwd, sizeof(cwd));
+	if (strcmp(cwd, user_pw->pw_dir) >= 0)
+	{
+		prompt[0] = '~';
+		strcpy(prompt + 1, cwd + strlen(user_pw->pw_dir));
+	}
+	else
+	{
+		strcpy(prompt, cwd);
+	}
+
+	sprintf(prompt, "%s$", prompt);
 }
