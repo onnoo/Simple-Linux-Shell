@@ -17,6 +17,7 @@
 #define REDIRECT_FORCE 6
 #define REDIRECT_APPEND 7
 #define REDIRECT_IN 8
+#define PIPE 9
 
 #define MAXARG 1024			/* max. no. command args */
 #define MAXBUF 1024			/* max. length input line */
@@ -37,13 +38,13 @@ char prompt[256];		/* prompt */
 
 /* program buffers and work pointers */
 char inpbuf[MAXBUF], tokbuf[2 * MAXBUF], *ptr = inpbuf, *tok = tokbuf;
-char special[] = {' ', '\t', '&', ';', '\n', '>', '\0'};
+char special[] = {' ', '\t', '&', ';', '\n', '>', '<', '|', '\0'};
 
 int userin(char *p);
 int gettok(char **outptr);
 int inarg(char c); 	/* are we in an ordinary argument */
 void procline(void);	/* process input lines */
-int runcommand(char **cline, int isBack, struct rdrct* redirect);
+int runcommand(char ***pipes, int isBack, struct rdrct* redirect, int pipecnt);
 void setprompt(void);
 int change_directory(char **cline);
 
@@ -127,6 +128,9 @@ int gettok(char **outptr)
 	case '<':
 		type = REDIRECT_IN;
 		break;
+	case '|':
+		type = PIPE;
+		break;
 	default:
 		type = ARG;
 		while(inarg(*ptr))
@@ -154,8 +158,12 @@ void procline(void)
 	int narg;					/* number of arguments so far */
 	int amp;					/* FOREGROUND or BACKGROUND */
 	struct rdrct red;			/* REDIRECT KEYWORD */
+	char **pipes[MAXARG + 1];	/* seperate commands in arg */
+	int pipecnt;				/* number of pipes */
 
 	red.type = 0;
+	pipecnt = 0;
+	pipes[0] = arg;
 
 	for (narg = 0;;) {	/* loop FOREVER */
 
@@ -184,6 +192,10 @@ void procline(void)
 		case REDIRECT_IN:
 			red.type = REDIRECT_IN;
 			break;
+		case PIPE:
+			arg[narg++] = NULL;
+			pipes[++pipecnt] = &arg[narg];
+			break;
 		case EOL:
 		case SEMICOLON:
 		case AMPERSAND:
@@ -193,9 +205,9 @@ void procline(void)
 			if (narg != 0) {
 				arg[narg] = NULL;
 				if (red.type == 0) {
-					runcommand(arg, amp, NULL);
+					runcommand(pipes, amp, NULL, pipecnt);
 				} else {
-					runcommand(arg, amp, &red);
+					runcommand(pipes, amp, &red, pipecnt);
 				}
 				
 			}	
@@ -209,14 +221,14 @@ void procline(void)
 	}
 }
 
-int runcommand(char **cline, int isBack, struct rdrct* redirect)
+int runcommand(char ***pipes, int isBack, struct rdrct* redirect, int pipecnt)
 {
-	int pid, exitstat, ret, fd;
+	int pid, exitstat, ret, fd, cnt = 0;
 
 	/* if change directory command */
-	if (strcmp(cline[0], "cd") == 0)
+	if (strcmp(*pipes[0], "cd") == 0)
 	{
-		ret = change_directory(cline);
+		ret = change_directory(pipes[0]);
 		setprompt();
 		return ret;
 	}
@@ -227,6 +239,7 @@ int runcommand(char **cline, int isBack, struct rdrct* redirect)
 	}
 
 	if (pid == 0) { /* child */
+		/* redirect */
 		if (redirect != NULL){
 			if (redirect->type == REDIRECT_IN)
 			{
@@ -264,8 +277,47 @@ int runcommand(char **cline, int isBack, struct rdrct* redirect)
 				/* stdout is now redirected */
 			}
 		}
-		execvp(*cline, cline);
-		perror(*cline);
+		/* piping */
+		if (pipecnt > 0) {
+			int files[pipecnt][2];
+			for (int i = 0; i < pipecnt; i++)
+				pipe(files[i]);
+			
+			for (cnt = 0; cnt < pipecnt; cnt++)
+			{
+				if (fork() == 0) {
+					
+					close(STDOUT_FILENO);
+					dup(files[cnt][1]);
+
+					if (cnt != 0)
+					{
+						close(STDIN_FILENO);
+						dup(files[cnt - 1][0]);
+					}
+
+					for (int i = 0; i < pipecnt; i++)
+					{
+						close(files[i][0]);
+						close(files[i][1]);
+					}
+
+					execvp(*pipes[cnt], pipes[cnt]);
+					perror(*pipes[cnt]);
+					exit(127);
+				}
+			}
+			close(STDIN_FILENO);
+			dup(files[cnt - 1][0]);
+			for (int i = 0; i < pipecnt; i++)
+			{
+				close(files[i][0]);
+				close(files[i][1]);
+			}
+		}
+
+		execvp(*pipes[cnt], pipes[cnt]);
+		perror(*pipes[cnt]);
 		exit(127);
 	}
 
