@@ -29,8 +29,10 @@
 
 struct rdrct
 {
-	int type;
-	char *file_name;
+	int in;
+	int out;
+	char *in_file_name;
+	char *out_file_name;
 };
 
 
@@ -161,7 +163,10 @@ void procline(void)
 	char **pipes[MAXARG + 1];	/* seperate commands in arg */
 	int pipecnt;				/* number of pipes */
 
-	red.type = 0;
+	red.in = 0;
+	red.out = 0;
+	red.in_file_name = NULL;
+	red.out_file_name = NULL;
 	pipecnt = 0;
 	pipes[0] = arg;
 
@@ -170,9 +175,13 @@ void procline(void)
 		/* take action according to token type */
 		switch (toktype = gettok(&arg[narg])) {
 		case ARG:
-			if (red.type != 0)
+			if (red.in != 0 && red.in_file_name == NULL)
 			{
-				red.file_name = arg[narg];
+				red.in_file_name = arg[narg];
+			}
+			else if (red.out != 0 && red.out_file_name == NULL)
+			{
+				red.out_file_name = arg[narg];
 			}
 			else
 			{
@@ -181,16 +190,16 @@ void procline(void)
 			}
 			break;
 		case REDIRECT:
-			red.type = REDIRECT;
+			red.out = REDIRECT;
 			break;
 		case REDIRECT_FORCE:
-			red.type = REDIRECT_FORCE;
+			red.out = REDIRECT_FORCE;
 			break;
 		case REDIRECT_APPEND:
-			red.type = REDIRECT_APPEND;
+			red.out = REDIRECT_APPEND;
 			break;
 		case REDIRECT_IN:
-			red.type = REDIRECT_IN;
+			red.in = REDIRECT_IN;
 			break;
 		case PIPE:
 			arg[narg++] = NULL;
@@ -204,12 +213,7 @@ void procline(void)
 
 			if (narg != 0) {
 				arg[narg] = NULL;
-				if (red.type == 0) {
-					runcommand(pipes, amp, NULL, pipecnt);
-				} else {
-					runcommand(pipes, amp, &red, pipecnt);
-				}
-				
+				runcommand(pipes, amp, &red, pipecnt);
 			}	
 
 			if (toktype == EOL)
@@ -223,7 +227,8 @@ void procline(void)
 
 int runcommand(char ***pipes, int isBack, struct rdrct* redirect, int pipecnt)
 {
-	int pid, exitstat, ret, fd, cnt = 0;
+	int pid, exitstat, ret, cnt = 0;
+	int in_fd, out_fd;
 
 	/* if change directory command */
 	if (strcmp(*pipes[0], "cd") == 0)
@@ -240,42 +245,41 @@ int runcommand(char ***pipes, int isBack, struct rdrct* redirect, int pipecnt)
 
 	if (pid == 0) { /* child */
 		/* redirect */
-		if (redirect != NULL){
-			if (redirect->type == REDIRECT_IN)
+		if (redirect->in != 0)
+		{
+			in_fd = open(redirect->in_file_name, O_RDONLY);
+			if (in_fd < 0)
 			{
-				fd = open(redirect->file_name, O_RDONLY);
-				if (fd < 0)
-				{
-					fprintf(stderr, "%s: No such file or directory\n", redirect->file_name);
-					return -1;
-				}
-				close(STDIN_FILENO);
-				dup(fd);
-				close(fd);
-				/* stdin is now redirected */
+				fprintf(stderr, "%s: No such file or directory\n", redirect->in_file_name);
+				return -1;
 			}
-			else
+			close(STDIN_FILENO);
+			dup(in_fd);
+			close(in_fd);
+			/* stdin is now redirected */
+		}
+		if (redirect->out != 0)
+		{
+			int flags = O_CREAT|O_WRONLY;
+			switch (redirect->out) {
+				case REDIRECT_APPEND:
+					flags |= O_APPEND; break;
+				case REDIRECT_FORCE:
+					flags |= O_TRUNC; break;
+				default:
+					flags |= O_EXCL; break;
+					break;
+			}
+			out_fd = open(redirect->out_file_name, flags, FPERM);
+			if (out_fd < 0)
 			{
-				int flags = O_CREAT|O_WRONLY|O_TRUNC;
-				switch (redirect->type) {
-					case REDIRECT_APPEND:
-						flags |= O_APPEND; break;
-					case REDIRECT:
-						flags |= O_EXCL; break;
-					default:
-						break;
-				}
-				fd = open(redirect->file_name, flags, FPERM);
-				if (fd < 0)
-				{
-					fprintf(stderr, "%s: cannot overwrite existing file\n", redirect->file_name);
-					return -1;
-				}
-				close(STDOUT_FILENO);
-				dup(fd);
-				close(fd);
-				/* stdout is now redirected */
+				fprintf(stderr, "%s: cannot overwrite existing file\n", redirect->out_file_name);
+				return -1;
 			}
+			close(STDOUT_FILENO);
+			dup(out_fd);
+			close(out_fd);
+			/* stdout is now redirected */
 		}
 		/* piping */
 		if (pipecnt > 0) {
