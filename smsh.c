@@ -7,7 +7,7 @@
 #include <pwd.h>
 #include <sys/types.h>
 #include <fcntl.h>
-#include <sys/types.h>
+#include <ctype.h>
 
 #define EOL 1				/* end of line */
 #define ARG 2				/* normal argument */
@@ -21,6 +21,7 @@
 
 #define MAXARG 1024			/* max. no. command args */
 #define MAXBUF 1024			/* max. length input line */
+#define MAXHIS 500
 
 #define FOREGROUND 0
 #define BACKGROUND 1
@@ -41,8 +42,8 @@ char prompt[256];		/* prompt */
 /* program buffers and work pointers */
 char inpbuf[MAXBUF], tokbuf[2 * MAXBUF], *ptr = inpbuf, *tok = tokbuf;
 char special[] = {' ', '\t', '&', ';', '\n', '>', '<', '|', '\0'};
-int history_fd;
-char *history[500], **history_start, **history_cursor;
+int history_fd, history_begin, history_end, history_index;
+char *history[MAXHIS];
 
 int userin(char *p);
 int gettok(char **outptr);
@@ -53,6 +54,7 @@ void setprompt(void);
 int change_directory(char **cline);
 void open_history_file(void);
 void add_command_into_history(char *cmd);
+void show_history(void);
 
 int main(void)
 {
@@ -65,43 +67,72 @@ int main(void)
 	}
 }
 
+void show_history(void)
+{
+	int j = 1;
+	for (int i = history_begin; i != history_end; i++, j++)
+	{
+		printf("%3d\t%s", (history_index - MAXHIS + j < 1 ? j : history_index - MAXHIS + j), history[i]);
+	}
+}
+
 void add_command_into_history(char *cmd)
 {
+	int blnk = 1;
+	/* blank check */
+	for (int i = 0; cmd[i]; i++)
+		if(cmd[i] != '\n' && cmd[i] != ' ' && cmd[i] != '\t')
+		{
+			printf("key : %d\n", (char)cmd[i]);
+			blnk = 0;
+			break;
+		}
+	
+	if(blnk)
+		return;
+		
 	if (write(history_fd, cmd, strlen(cmd)) < 0)
 	{
 		perror("write error");
 		exit(1);
 	}
+	char *cp;
+	cp = malloc(sizeof(MAXBUF) * sizeof(char));
+	strcpy(cp, cmd);
+	history[history_end++] = cp;
+	free(history[history_end]);
+	
+	if ((history_end %= MAXHIS) == history_begin)
+		history_begin = (history_begin + 1) % MAXHIS;
+	history_index++;
 }
 
 void open_history_file(void)
 {
+	history_index = 0;
 	int history_perm = 0600;
+	history_begin = 0;
+	history_end = history_begin = 0; 
 	history_fd = open("/Users/onnoo/.smsh_history", O_CREAT|O_RDWR, history_perm);
-	history_start = history_cursor = history;
 
 	FILE *file = fdopen(history_fd, "r");
-	printf("history open : \n");
 	char buf[1024], *cp;
 	while (fgets(buf, sizeof(buf), file))
 	{
 		cp = malloc(sizeof(buf));
 		strcpy(cp, buf);
-		*history_cursor++ = cp;
+		history[history_end++] = cp;
+		if ((history_end %= MAXHIS) == history_begin)
+			history_begin = (history_begin + 1) % MAXHIS;
+		history_index++;
 	}
-	fclose(file);
-
-	// for (char **p = history_start; p != (history_cursor); p++)
-	// {
-	// 	printf("%s", *p);
-	// }
 
 	return;
 }
 
 int userin(char *p)
 {
-	int c, count;
+	int c, count, history_cursor = history_end;
 
 	/* initialization for later routines */
 	ptr = inpbuf;
@@ -276,6 +307,12 @@ int runcommand(char ***pipes, int isBack, struct rdrct* redirect, int pipecnt)
 		ret = change_directory(pipes[0]);
 		setprompt();
 		return ret;
+	}
+
+	if (strcmp(*pipes[0], "history") == 0)
+	{
+		show_history();
+		return 0;
 	}
 
 	if ((pid = fork()) < 0) {
