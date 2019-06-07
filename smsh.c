@@ -42,7 +42,7 @@ char prompt[256];		/* prompt */
 char inpbuf[MAXBUF], tokbuf[2 * MAXBUF], *ptr = inpbuf, *tok = tokbuf;
 char special[] = {' ', '\t', '&', ';', '\n', '>', '<', '|', '\0'};
 int history_fd;
-char *history[500];
+char *history[500], **history_start, **history_cursor;
 
 int userin(char *p);
 int gettok(char **outptr);
@@ -78,8 +78,23 @@ void open_history_file(void)
 {
 	int history_perm = 0600;
 	history_fd = open("/Users/onnoo/.smsh_history", O_CREAT|O_RDWR, history_perm);
+	history_start = history_cursor = history;
 
-	// while (read(history_fd, ))
+	FILE *file = fdopen(history_fd, "r");
+	printf("history open : \n");
+	char buf[1024], *cp;
+	while (fgets(buf, sizeof(buf), file))
+	{
+		cp = malloc(sizeof(buf));
+		strcpy(cp, buf);
+		*history_cursor++ = cp;
+	}
+	fclose(file);
+
+	// for (char **p = history_start; p != (history_cursor); p++)
+	// {
+	// 	printf("%s", *p);
+	// }
 
 	return;
 }
@@ -104,7 +119,6 @@ int userin(char *p)
 		
 		if (c == '\n' && count < MAXBUF) {
 			inpbuf[count] = '\0';
-			printf("%s", inpbuf);
 			return count;
 		}
 
