@@ -41,6 +41,8 @@ char prompt[256];		/* prompt */
 /* program buffers and work pointers */
 char inpbuf[MAXBUF], tokbuf[2 * MAXBUF], *ptr = inpbuf, *tok = tokbuf;
 char special[] = {' ', '\t', '&', ';', '\n', '>', '<', '|', '\0'};
+int history_fd;
+char *history[500];
 
 int userin(char *p);
 int gettok(char **outptr);
@@ -49,14 +51,37 @@ void procline(void);	/* process input lines */
 int runcommand(char ***pipes, int isBack, struct rdrct* redirect, int pipecnt);
 void setprompt(void);
 int change_directory(char **cline);
+void open_history_file(void);
+void add_command_into_history(char *cmd);
 
 int main(void)
 {
+	open_history_file();
 	setprompt();
 	while (userin(prompt) != EOF)
 	{
+		add_command_into_history(ptr);
 		procline();
 	}
+}
+
+void add_command_into_history(char *cmd)
+{
+	if (write(history_fd, cmd, strlen(cmd)) < 0)
+	{
+		perror("write error");
+		exit(1);
+	}
+}
+
+void open_history_file(void)
+{
+	int history_perm = 0600;
+	history_fd = open("/Users/onnoo/.smsh_history", O_CREAT|O_RDWR, history_perm);
+
+	// while (read(history_fd, ))
+
+	return;
 }
 
 int userin(char *p)
@@ -79,6 +104,7 @@ int userin(char *p)
 		
 		if (c == '\n' && count < MAXBUF) {
 			inpbuf[count] = '\0';
+			printf("%s", inpbuf);
 			return count;
 		}
 
