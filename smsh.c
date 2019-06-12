@@ -83,7 +83,6 @@ void add_command_into_history(char *cmd)
 	for (int i = 0; cmd[i]; i++)
 		if(cmd[i] != '\n' && cmd[i] != ' ' && cmd[i] != '\t')
 		{
-			printf("key : %d\n", (char)cmd[i]);
 			blnk = 0;
 			break;
 		}
@@ -309,12 +308,6 @@ int runcommand(char ***pipes, int isBack, struct rdrct* redirect, int pipecnt)
 		return ret;
 	}
 
-	if (strcmp(*pipes[0], "history") == 0)
-	{
-		show_history();
-		return 0;
-	}
-
 	if ((pid = fork()) < 0) {
 		perror("smsh");
 		return -1;
@@ -397,9 +390,17 @@ int runcommand(char ***pipes, int isBack, struct rdrct* redirect, int pipecnt)
 			}
 		}
 
-		execvp(*pipes[cnt], pipes[cnt]);
-		perror(*pipes[cnt]);
-		exit(127);
+		if (strcmp(*pipes[0], "history") == 0)
+		{
+			show_history();
+			exit(127);
+		}
+		else
+		{
+			execvp(*pipes[cnt], pipes[cnt]);
+			perror(*pipes[cnt]);
+			exit(127);
+		}
 	}
 
 	/* code for parent */
