@@ -108,11 +108,20 @@ void add_command_into_history(char *cmd)
 
 void open_history_file(void)
 {
+	uid_t user_id;
+	struct passwd *user_pw;
+
+	user_id  = getuid();			// 사용자 아이디를 구하고
+    user_pw  = getpwuid(user_id);	// 아이디로 사용자 정보 구하기
+
+	char path[256];
+	sprintf(path, "%s/%s", user_pw->pw_dir, "/.smsh_history");
+
 	history_index = 0;
 	int history_perm = 0600;
 	history_begin = 0;
 	history_end = history_begin = 0; 
-	history_fd = open("/Users/onnoo/.smsh_history", O_CREAT|O_RDWR, history_perm);
+	history_fd = open(path, O_CREAT|O_RDWR, history_perm);
 
 	FILE *file = fdopen(history_fd, "r");
 	char buf[1024], *cp;
