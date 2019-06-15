@@ -9,7 +9,7 @@
 #include <fcntl.h>
 #include <ctype.h>
 #include <signal.h>
-#include <wait.h>
+// #include <wait.h>
 
 #define EOL 1				/* end of line */
 #define ARG 2				/* normal argument */
@@ -61,29 +61,37 @@ void add_command_into_history(char *cmd);
 void show_history(void);
 void signal_handler(int signo)
 {
-	count = 0;
 	sigint_flag = 1;
-	printf("\n%s ", prompt);
 }
+
+static struct sigaction act, oact;
+static sigset_t set1, set2;
 
 int main(void)
 {
 	/* sigaction for SIGINT */
-	static struct sigaction act;
+	sigaction(SIGINT, NULL, &oact);
 	act.sa_handler = signal_handler;
 	act.sa_flags = 0;
 	sigaction(SIGINT, &act, NULL);
-	sigset_t set1;
 	sigfillset (&set1);
+	sigemptyset(&set2);
 	sigdelset(&set1, SIGINT);
 	
+	/* Block other signals */
 	sigprocmask(SIG_SETMASK, &set1, NULL);
 	open_history_file();
 	setprompt();
 	while (userin(prompt) != EOF)
-	{
+	{	
+		sigfillset (&set1);
+		sigprocmask(SIG_SETMASK, &set1, NULL);
+
 		add_command_into_history(ptr);
 		procline();
+
+		sigdelset(&set1, SIGINT);
+		sigprocmask(SIG_SETMASK, &set1, NULL);
 	}
 }
 
@@ -169,7 +177,7 @@ int userin(char *p)
 	/* display prompt */
 	printf("%s ", p);
 
-	for (count = 0;;sigint_flag = 0) {
+	for (count = 0, sigint_flag = 0;;sigint_flag = 0) {
 		if ((c = getchar()) == EOF && sigint_flag == 0)
 		{
 			printf("\nBye\n");
@@ -177,8 +185,11 @@ int userin(char *p)
 		}
 
 		if (sigint_flag == 1)
+		{
+			count = 0;
+			printf("\n%s ", prompt);
 			continue;
-		
+		}
 		if (count < MAXBUF)
 			inpbuf[count++] = c;
 		
@@ -349,6 +360,8 @@ int runcommand(char ***pipes, int isBack, struct rdrct* redirect, int pipecnt)
 	}
 
 	if (pid == 0) { /* child */
+		sigaction(SIGINT, &oact, NULL);
+		sigprocmask(SIG_SETMASK, &set2, NULL);
 		/* redirect */
 		if (redirect->in != 0)
 		{
