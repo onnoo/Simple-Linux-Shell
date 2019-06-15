@@ -8,6 +8,8 @@
 #include <sys/types.h>
 #include <fcntl.h>
 #include <ctype.h>
+#include <signal.h>
+#include <wait.h>
 
 #define EOL 1				/* end of line */
 #define ARG 2				/* normal argument */
@@ -38,6 +40,8 @@ struct rdrct
 
 
 char prompt[256];		/* prompt */
+int count;				/* input count */
+int sigint_flag = 0;
 
 /* program buffers and work pointers */
 char inpbuf[MAXBUF], tokbuf[2 * MAXBUF], *ptr = inpbuf, *tok = tokbuf;
@@ -55,9 +59,25 @@ int change_directory(char **cline);
 void open_history_file(void);
 void add_command_into_history(char *cmd);
 void show_history(void);
+void signal_handler(int signo)
+{
+	count = 0;
+	sigint_flag = 1;
+	printf("\n%s ", prompt);
+}
 
 int main(void)
 {
+	/* sigaction for SIGINT */
+	static struct sigaction act;
+	act.sa_handler = signal_handler;
+	act.sa_flags = 0;
+	sigaction(SIGINT, &act, NULL);
+	sigset_t set1;
+	sigfillset (&set1);
+	sigdelset(&set1, SIGINT);
+	
+	sigprocmask(SIG_SETMASK, &set1, NULL);
 	open_history_file();
 	setprompt();
 	while (userin(prompt) != EOF)
@@ -140,7 +160,7 @@ void open_history_file(void)
 
 int userin(char *p)
 {
-	int c, count, history_cursor = history_end;
+	int c, history_cursor = history_end;
 
 	/* initialization for later routines */
 	ptr = inpbuf;
@@ -149,9 +169,15 @@ int userin(char *p)
 	/* display prompt */
 	printf("%s ", p);
 
-	for (count = 0;;) {
-		if ((c = getchar()) == EOF)
+	for (count = 0;;sigint_flag = 0) {
+		if ((c = getchar()) == EOF && sigint_flag == 0)
+		{
+			printf("\nBye\n");
 			return EOF;
+		}
+
+		if (sigint_flag == 1)
+			continue;
 		
 		if (count < MAXBUF)
 			inpbuf[count++] = c;
@@ -470,6 +496,10 @@ int change_directory(char **cline)
 	}
 	else
 	{
-		return chdir(cline[1]);
+		if (chdir(cline[1]) < 0) {
+			perror("cd");
+			return -1;
+		}
+		return 0;
 	}
 }
