@@ -219,6 +219,8 @@ int gettok(char **outptr)
 		;
 	
 	*tok++ = *ptr;
+	char *tok_tmp = tok;
+	char *ptr_tmp = ptr + 1;
 
 	switch (*ptr++) {
 	case '\n':
@@ -249,6 +251,29 @@ int gettok(char **outptr)
 	case '|':
 		type = PIPE;
 		break;
+	case '\"':
+		type = ARG;
+		int is_eol = 0;
+		while(*ptr != '\"')
+		{
+			*tok++ = *ptr++;
+			if (*ptr == '\0')
+			{
+				is_eol = 1;
+				break;
+			}
+		}
+		if (is_eol == 1)
+		{
+			tok = tok_tmp;
+			ptr = ptr_tmp;
+		}
+		else
+		{
+			ptr++;
+			(*outptr)++;
+			break;
+		}
 	default:
 		type = ARG;
 		while(inarg(*ptr))
@@ -302,7 +327,7 @@ void procline(void)
 			else
 			{
 				if (narg < MAXARG)
-				narg++;
+					narg++;
 			}
 			break;
 		case REDIRECT:
